@@ -1,15 +1,35 @@
+#[cfg(feature = "vca")]
+pub use version_specific_imports::*;
+
+#[cfg(feature = "vca")]
+mod version_specific_imports {
+    pub use std::hash::Hash;
+    pub use credx::vca::api::types::{
+        Accumulator as CryptoAccumulator,
+        AccumulatorAddRemoveResponse, AccumulatorElement, AccumulatorMembershipWitness,
+        AccumulatorData, AccumulatorPublicData, AccumulatorSecretData, AccumulatorWitnessUpdateInfo,
+        BlindInfoForSigner, BlindSignature, CreateAccumulatorResponse, CredAttrIndexAndDataValue,
+        HolderID, InfoForUnblinding, MembershipProvingKey, RangeProofProvingKey, Signature,
+        SignerData, SignerPublicData, SignerSecretData, WarningsAndDataForVerifier
+    };
+    pub use crate::VCA_API;
+    pub use crate::helpers::vca::{
+        accumulator_element_from_member, accumulator_member_from_rev_reg_index,
+        accumulator_element_from_rev_reg_index
+    };
+}
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::hash::Hash;
-use std::iter::FromIterator;
 use std::ops::RangeInclusive;
 
 use crate::amcl::*;
 use crate::bn::BigNumber;
 use crate::error::Result as ClResult;
-use crate::helpers;
+#[cfg(not(feature = "vca"))]
+use crate::helpers; // this cannot be reexported from version_specific_imports
 
 /// A list of attributes a Credential is based on.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -129,12 +149,21 @@ impl CredentialValue {
 }
 
 /// Values of attributes from `Claim Schema` (must be integers).
+#[cfg(not(feature="vca"))]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CredentialValues {
     pub(crate) attrs_values: BTreeMap<String, CredentialValue>,
 }
 
+#[cfg(feature="vca")]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct CredentialValues {
+    pub attrs_values: Vec<CredAttrIndexAndDataValue>
+}
+
+#[cfg(not(feature="vca"))]
 impl CredentialValues {
     pub fn merge(&self, values: &Self) -> ClResult<CredentialValues> {
         let mut vals = self.try_clone()?;
@@ -151,12 +180,14 @@ impl CredentialValues {
 }
 
 /// A Builder of `Credential Values`.
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialValuesBuilder {
     pub(crate) attrs_values: BTreeMap<String, CredentialValue>, /* attr_name -> int representation of value */
 }
 
+#[cfg(not(feature="vca"))]
 impl CredentialValuesBuilder {
     pub fn new() -> ClResult<CredentialValuesBuilder> {
         Ok(CredentialValuesBuilder {
@@ -283,6 +314,7 @@ impl CredentialPublicKey {
 
 /// `Issuer Private Key`: contains 2 internal parts.
 /// One for signing primary credentials and second for signing non-revocation credentials.
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialPrivateKey {
@@ -290,7 +322,16 @@ pub struct CredentialPrivateKey {
     pub(crate) r_key: Option<CredentialRevocationPrivateKey>,
 }
 
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialPrivateKey {
+    pub p_key: CredentialPrimaryPrivateKey,
+    pub r_key: Option<CredentialRevocationPrivateKey>,
+}
+
 /// Issuer's "Public Key" is used to verify the Issuer's signature over the Credential's attributes' values (primary credential).
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialPrimaryPublicKey {
@@ -301,6 +342,7 @@ pub struct CredentialPrimaryPublicKey {
     pub(crate) z: BigNumber,
 }
 
+#[cfg(not(feature="vca"))]
 impl CredentialPrimaryPublicKey {
     pub fn try_clone(&self) -> ClResult<CredentialPrimaryPublicKey> {
         Ok(CredentialPrimaryPublicKey {
@@ -313,6 +355,33 @@ impl CredentialPrimaryPublicKey {
     }
 }
 
+#[cfg(feature="vca")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AttributeNames(pub Vec<String>);
+
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialPrimaryPublicKey {
+    pub signer_public_data: SignerPublicData,
+    pub attribute_names: AttributeNames, // Needed to associate values with the VCA schema in SignerPublicData [ClaimType]
+    // Although anyone can create a RangeProofProvingKey, having the Issuer do it avoids extending the V1
+    // API, and (in case a trusted setup is used) Issuer is trusted for many things anyway
+    pub range_proof_proving_key: Option<RangeProofProvingKey>, // Needed only if there are any CTInt attributes
+}
+
+#[cfg(feature="vca")]
+impl CredentialPrimaryPublicKey {
+    pub fn try_clone(&self) -> ClResult<CredentialPrimaryPublicKey> {
+        Ok(CredentialPrimaryPublicKey {
+            signer_public_data: self.signer_public_data.clone(),
+            attribute_names: self.attribute_names.clone(),
+            range_proof_proving_key: self.range_proof_proving_key.clone(),
+        })
+    }
+}
+
+#[cfg(not(feature="vca"))]
 #[cfg(feature = "serde")]
 impl<'a> ::serde::de::Deserialize<'a> for CredentialPrimaryPublicKey {
     fn deserialize<D: ::serde::de::Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
@@ -342,6 +411,7 @@ impl<'a> ::serde::de::Deserialize<'a> for CredentialPrimaryPublicKey {
 }
 
 /// Issuer's "Private Key" used for signing Credential's attributes' values (primary credential)
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialPrimaryPrivateKey {
@@ -349,14 +419,29 @@ pub struct CredentialPrimaryPrivateKey {
     pub(crate) q: BigNumber,
 }
 
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialPrimaryPrivateKey {
+    pub signer_secret_data: SignerData
+}
+
 /// `Primary Public Key Metadata` required for building of Proof Correctness of `Issuer Public Key`
+#[cfg(not(feature="vca"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialPrimaryPublicKeyMetadata {
     pub(crate) xz: BigNumber,
     pub(crate) xr: HashMap<String, BigNumber>,
 }
 
+#[cfg(feature="vca")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialPrimaryPublicKeyMetadata {
+    pub(crate) not_used: String
+}
+
 /// Proof of `Issuer Public Key` correctness
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialKeyCorrectnessProof {
@@ -365,6 +450,7 @@ pub struct CredentialKeyCorrectnessProof {
     pub(crate) xr_cap: Vec<(String, BigNumber)>,
 }
 
+#[cfg(not(feature="vca"))]
 impl CredentialKeyCorrectnessProof {
     pub fn try_clone(&self) -> ClResult<CredentialKeyCorrectnessProof> {
         Ok(CredentialKeyCorrectnessProof {
@@ -378,7 +464,26 @@ impl CredentialKeyCorrectnessProof {
     }
 }
 
+// TODO: figure out the purpose of CredentialKeyCorrectnessProof, and determine whether VCA
+// implementations can be expected to fulfil its purpose, similarly to how they do for
+// BlindedCredentialSecretsCorrectnessProof (see comments next to its VCA definition in
+// anoncreds-clsignatures-rs).
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialKeyCorrectnessProof {
+    pub not_used: String
+}
+
+#[cfg(feature="vca")]
+impl CredentialKeyCorrectnessProof {
+    pub fn try_clone(&self) -> ClResult<CredentialKeyCorrectnessProof> {
+        Ok(self.clone())
+    }
+}
+
 /// `Revocation Public Key` is used to verify that credential wasn't revoked by Issuer.
+#[cfg(not(feature = "vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialRevocationPublicKey {
@@ -395,7 +500,15 @@ pub struct CredentialRevocationPublicKey {
     pub(crate) y: PointG2,
 }
 
+#[cfg(feature = "vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialRevocationPublicKey {
+    pub accumulator_membership_proving_key: MembershipProvingKey,
+}
+
 /// `Revocation Private Key` is used for signing Credential.
+#[cfg(not(feature = "vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialRevocationPrivateKey {
@@ -403,11 +516,33 @@ pub struct CredentialRevocationPrivateKey {
     pub(crate) sk: GroupOrderElement,
 }
 
+#[cfg(feature = "vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+// This type is retained for uniformity with non-VCA code, but is not required for VCA because VCA
+// ensures that the accumulator element for which a witness is used to prove nonrevocation iis
+// signed by the underlying signature.
+pub struct CredentialRevocationPrivateKey;
+
 /// Accumulator value, contained in a revocation registry and delta.
+#[cfg(not(feature = "vca"))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
 pub struct Accumulator(PointG2Inf);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg(feature = "vca")]
+// With V1, holders can update their witness using any previous revocation status
+// list. For VCA, we keep AccumulatorWitnessUpdateInfo along with an Accumulator so
+// that it can be used by create_or_update_revocation_state to update a witness
+pub struct Accumulator {
+    pub accumulator: CryptoAccumulator,
+    pub accum_witness_update_info: Option<AccumulatorWitnessUpdateInfo>,
+    pub sequence_number: u32
+}
+
+#[cfg(not(feature = "vca"))]
 impl Accumulator {
     pub const BYTES_REPR_SIZE: usize = PointG2Inf::BYTES_REPR_SIZE;
 
@@ -442,18 +577,21 @@ impl Accumulator {
     }
 }
 
+#[cfg(not(feature = "vca"))]
 impl From<PointG2> for Accumulator {
     fn from(value: PointG2) -> Self {
         Self(value.into())
     }
 }
 
+#[cfg(not(feature = "vca"))]
 impl From<PointG2Inf> for Accumulator {
     fn from(value: PointG2Inf) -> Self {
         Self(value)
     }
 }
 
+#[cfg(not(feature = "vca"))]
 impl AsRef<PointG2> for Accumulator {
     fn as_ref(&self) -> &PointG2 {
         &self.0 .0
@@ -489,6 +627,7 @@ impl RevocationRegistry {
         )
     }
 
+    #[cfg(not(feature="vca"))]
     pub(crate) fn _initial_state(
         cred_rev_pub_key: &CredentialRevocationPublicKey,
         rev_key_priv: &RevocationKeyPrivate,
@@ -517,36 +656,33 @@ impl RevocationRegistry {
         Ok(rev_reg)
     }
 
-    /// Create the revocation registry for a set of issued credential indexes.
-    pub fn for_issued(
-        credential_pub_key: &CredentialPublicKey,
+    #[cfg(feature="vca")]
+    pub(crate) fn _initial_state(
+        cred_rev_pub_key: &CredentialRevocationPublicKey,
         rev_key_priv: &RevocationKeyPrivate,
         max_cred_num: u32,
-        issued: &BTreeSet<u32>,
+        issuance_by_default: bool,
     ) -> ClResult<Self> {
-        trace!("RevocationRegistry::for_issued: >>> credential_pub_key: {:?}, rev_key_priv: {:?}, max_cred_num: {:?}, issued: {:?}",
-        credential_pub_key, secret!(rev_key_priv), max_cred_num, issued);
+        trace!("RevocationRegistry::_initial_state: >>> cred_rev_pub_key: {:?}, rev_key_priv: {:?}, max_cred_num: {:?}, issuance_by_default: {:?}",
+               cred_rev_pub_key, secret!(rev_key_priv), max_cred_num, issuance_by_default);
 
-        let cred_rev_pub_key: &CredentialRevocationPublicKey =
-            credential_pub_key.r_key.as_ref().ok_or_else(|| {
-                err_msg!("There are no revocation keys in the credential public key.")
-            })?;
-        if let Some(first) = issued.iter().next().copied() {
-            if first == 0 {
-                return Err(err_msg!("Invalid revocation index, 0."));
-            }
-        }
-        if let Some(last) = issued.iter().last().copied() {
-            if last > max_cred_num {
-                return Err(err_msg!("Invalid revocation index, exceeds max_cred_num."));
-            }
-        }
-
-        let rev_reg = Self {
-            accum: Tail::accum_indexes(&cred_rev_pub_key.g_dash, &rev_key_priv.gamma, issued)?,
+        let accumulator_data = &rev_key_priv.accumulator_data;
+        let mut accum = rev_key_priv.initial_accumulator.clone();
+        if issuance_by_default {
+            accum_range(accumulator_data, &mut accum, 1..=max_cred_num)?;
+        } else {
+            // NOTE: it is tempting to throw an error here because VCA does not support
+            // issuance_by_default.  However, create_revocation_registry_def calls this function
+            // with issuance_by_default = false, even when it is reached via
+            // create_revocation_status_list with issuance_by_default = true.
         };
+        let rev_reg = Self { accum };
 
-        trace!("RevocationRegistry::for_issued: <<< rev_reg: {:?}", rev_reg);
+        trace!(
+            "RevocationRegistry::_initial_state: <<< rev_reg: {:?}",
+            rev_reg
+        );
+
         Ok(rev_reg)
     }
 }
@@ -566,8 +702,13 @@ impl From<RevocationRegistryDelta> for RevocationRegistry {
 }
 
 impl From<&RevocationRegistry> for RevocationRegistryDelta {
+    #[cfg(not(feature="vca"))]
     fn from(rev_reg: &RevocationRegistry) -> RevocationRegistryDelta {
         RevocationRegistryDelta::from_parts(None, rev_reg, &HashSet::new(), &HashSet::new())
+    }
+    #[cfg(feature="vca")]
+    fn from(rev_reg: &RevocationRegistry) -> RevocationRegistryDelta {
+        RevocationRegistryDelta::from_parts(None, rev_reg, &HashSet::new(), &HashSet::new(), &None)
     }
 }
 
@@ -596,6 +737,8 @@ pub struct RevocationRegistryDelta {
         serde(skip_serializing_if = "HashSet::is_empty")
     )]
     pub(crate) revoked: HashSet<u32>,
+    #[cfg(feature="vca")]
+    pub accumulator_witness_update_info: Option<AccumulatorWitnessUpdateInfo>
 }
 
 impl RevocationRegistryDelta {
@@ -604,15 +747,21 @@ impl RevocationRegistryDelta {
         rev_reg_to: &RevocationRegistry,
         issued: &HashSet<u32>,
         revoked: &HashSet<u32>,
+        #[cfg(feature="vca")]
+        update_info: &Option<AccumulatorWitnessUpdateInfo>,
     ) -> RevocationRegistryDelta {
         RevocationRegistryDelta {
-            prev_accum: rev_reg_from.map(|rev_reg| rev_reg.accum),
-            accum: rev_reg_to.accum,
+            // TODO: why did VCA make these clones necessary?
+            prev_accum: rev_reg_from.map(|rev_reg| rev_reg.accum.clone()),
+            accum: rev_reg_to.accum.clone(),
             issued: issued.clone(),
             revoked: revoked.clone(),
+            #[cfg(feature="vca")]
+            accumulator_witness_update_info: update_info.clone()
         }
     }
 
+    #[cfg(not(feature="vca"))]
     pub fn merge(&mut self, other_delta: &RevocationRegistryDelta) -> ClResult<()> {
         if other_delta.prev_accum.is_none() || self.accum != other_delta.prev_accum.unwrap() {
             return Err(err_msg!("Deltas can not be merged."));
@@ -640,24 +789,48 @@ impl RevocationRegistryDelta {
 
 /// `Revocation Key Public` Accumulator public key.
 /// Must be published together with Accumulator
+#[cfg(not(feature = "vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevocationKeyPublic {
     pub(crate) z: Pair,
 }
 
+#[cfg(feature = "vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevocationKeyPublic {
+    pub accumulator_public_data: AccumulatorPublicData,
+}
+
 /// `Revocation Key Private` Accumulator primate key.
+#[cfg(not(feature = "vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevocationKeyPrivate {
     pub(crate) gamma: GroupOrderElement,
 }
 
+#[cfg(feature = "vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevocationKeyPrivate {
+    pub(crate) accumulator_data: AccumulatorData,
+    pub(crate) initial_accumulator: Accumulator,
+}
+
 /// `Tail` point of curve used to update an accumulator.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
+#[cfg(not(feature = "vca"))]
 pub struct Tail(PointG2);
 
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
+#[cfg(feature = "vca")]
+pub struct Tail(String);  // Just for text explaining VCA does not use Tails like V1 does
+
+#[cfg(not(feature = "vca"))]
 impl Tail {
     pub const BYTES_REPR_SIZE: usize = PointG2::BYTES_REPR_SIZE;
 
@@ -682,18 +855,21 @@ impl Tail {
     }
 }
 
+#[cfg(not(feature = "vca"))]
 impl From<PointG2> for Tail {
     fn from(value: PointG2) -> Self {
         Self(value)
     }
 }
 
+#[cfg(not(feature = "vca"))]
 impl AsRef<PointG2> for Tail {
     fn as_ref(&self) -> &PointG2 {
         &self.0
     }
 }
 
+#[cfg(not(feature = "vca"))]
 impl Tail {
     pub(crate) fn new(index: u32, g_dash: &PointG2, gamma: &GroupOrderElement) -> ClResult<Self> {
         g_dash.mul(&Self::index_pow(index, gamma)?).map(Self)
@@ -722,6 +898,7 @@ impl Tail {
         Ok(g_dash.mul(&acc)?.into())
     }
 
+    #[cfg(test)]
     pub(crate) fn accum_indexes(
         g_dash: &PointG2,
         gamma: &GroupOrderElement,
@@ -748,9 +925,50 @@ impl Tail {
     }
 }
 
+// This is the VCA counterpart for the method of the same name in the Tail impl above; VCA does not
+// require the Tail type, so accum_range is a standalone function
+#[cfg(feature="vca")]
+pub(crate) fn accum_range(
+    accumulator_data: &AccumulatorData,
+    accumulator: &mut Accumulator,
+    range: RangeInclusive<u32>,
+) -> ClResult<()> {
+    // Generate the list of AccumulatorElements to add to the accumulator.
+    let accumulator_add_remove = VCA_API.accumulator_add_remove.clone();
+
+    let elems_to_add =
+        range
+        .into_iter()
+        .map::<ClResult<_>, _>(|idx| {
+            let member = accumulator_member_from_rev_reg_index(idx);
+            Ok((
+                HolderID(member.clone()),
+                accumulator_element_from_member(member)?,
+            ))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()
+        .map_err(|e| err_msg!("accum_range: {:?}", e))?;
+
+
+    // Add them
+    let AccumulatorAddRemoveResponse {
+        witness_update_info: _,  // Not needed as this is the first time any witnesses are produced
+        witnesses_for_new: _,    // Not used as holders will get their own witnesses
+        accumulator: new_accumulator
+    } = accumulator_add_remove(accumulator_data, &accumulator.accumulator, &elems_to_add, &[])
+        .map_err(|e| err_msg!("accumulator_add_remove: {:?}", e))?;
+
+    *accumulator = crate::types::Accumulator{accumulator: new_accumulator,
+                                             accum_witness_update_info: None,
+                                             sequence_number: accumulator.sequence_number + 1
+    };
+    Ok(())
+}
+
 /// Generator of `Tail's`.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
+#[cfg(not(feature="vca"))]
 pub struct RevocationTailsGenerator {
     size: u32,
     current_index: u32,
@@ -759,6 +977,7 @@ pub struct RevocationTailsGenerator {
     cur: Option<PointG2>,
 }
 
+#[cfg(not(feature="vca"))]
 impl RevocationTailsGenerator {
     pub(crate) fn new(max_cred_num: u32, gamma: GroupOrderElement, g_dash: PointG2) -> Self {
         RevocationTailsGenerator {
@@ -794,16 +1013,25 @@ impl RevocationTailsGenerator {
     }
 }
 
+// VCA does not generate a Tails file, but we keep this trivial type to
+// avoid code changes than would be necessary to eliminate it entirely
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+#[cfg(feature="vca")]
+pub struct RevocationTailsGenerator;
+
 pub trait RevocationTailsAccessor {
     fn access_tail(&self, tail_id: u32, accessor: &mut dyn FnMut(&Tail)) -> ClResult<()>;
 }
 
 /// Simple implementation of `RevocationTailsAccessor` that stores all tails as BTreeMap.
+#[cfg(not(feature="vca"))]
 #[derive(Debug, Clone)]
 pub struct SimpleTailsAccessor {
     tails: Vec<Tail>,
 }
 
+#[cfg(not(feature="vca"))]
 impl RevocationTailsAccessor for SimpleTailsAccessor {
     fn access_tail(&self, tail_id: u32, accessor: &mut dyn FnMut(&Tail)) -> ClResult<()> {
         accessor(&self.tails[tail_id as usize]);
@@ -811,6 +1039,7 @@ impl RevocationTailsAccessor for SimpleTailsAccessor {
     }
 }
 
+#[cfg(not(feature="vca"))]
 impl SimpleTailsAccessor {
     pub fn new(
         rev_tails_generator: &mut RevocationTailsGenerator,
@@ -824,11 +1053,20 @@ impl SimpleTailsAccessor {
 }
 
 /// Issuer's signature over Credential attribute values.
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialSignature {
     pub(crate) p_credential: PrimaryCredentialSignature,
     pub(crate) r_credential: Option<NonRevocationCredentialSignature>, /* will be used to proof is credential revoked preparation */
+}
+
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialSignature {
+    pub p_credential: PrimaryCredentialSignature,
+    pub r_credential: Option<NonRevocationCredentialSignature>, /* will be used to proof is credential revoked preparation */
 }
 
 impl CredentialSignature {
@@ -846,6 +1084,7 @@ impl CredentialSignature {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrimaryCredentialSignature {
@@ -855,6 +1094,7 @@ pub struct PrimaryCredentialSignature {
     pub(crate) v: BigNumber,
 }
 
+#[cfg(not(feature="vca"))]
 impl PrimaryCredentialSignature {
     pub fn try_clone(&self) -> ClResult<PrimaryCredentialSignature> {
         Ok(PrimaryCredentialSignature {
@@ -866,6 +1106,30 @@ impl PrimaryCredentialSignature {
     }
 }
 
+#[cfg(feature="vca")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlindedOrUnblindedSignature {
+    Blinded(BlindSignature),
+    Unblinded(Signature),
+}
+
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrimaryCredentialSignature {
+    pub signature: BlindedOrUnblindedSignature
+}
+
+#[cfg(feature="vca")]
+impl PrimaryCredentialSignature {
+    pub fn try_clone(&self) -> ClResult<PrimaryCredentialSignature> {
+        Ok(PrimaryCredentialSignature {
+            signature: self.signature.clone(),
+        })
+    }
+}
+
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonRevocationCredentialSignature {
@@ -878,6 +1142,23 @@ pub struct NonRevocationCredentialSignature {
     pub(crate) m2: GroupOrderElement,
 }
 
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NonRevocationCredentialSignature {
+    pub i: u32,                      // rev_reg_idx
+    pub accumulator_public_data: AccumulatorPublicData,
+    // The remaining fields enable the Prover to construct and store
+    // its initial CredentialRevocationState so that it can retrieve them
+    // for use in the first call to create_or_update_revocation_state (v1
+    // does not need to do this because it can generate a witness directly
+    // from Tails file)
+    pub accum: Accumulator,
+    pub witness: Witness,
+    pub timestamp: Option<u64> // Option to enable it to be filled in later
+}
+
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureCorrectnessProof {
@@ -885,6 +1166,7 @@ pub struct SignatureCorrectnessProof {
     pub(crate) c: BigNumber,
 }
 
+#[cfg(not(feature="vca"))]
 impl SignatureCorrectnessProof {
     pub fn try_clone(&self) -> ClResult<SignatureCorrectnessProof> {
         Ok(SignatureCorrectnessProof {
@@ -894,12 +1176,39 @@ impl SignatureCorrectnessProof {
     }
 }
 
+// TODO: figure out the purpose of SignatureCorrectnessProof, and determine
+// whether VCA implementations can be expected to fulfil its purpose, similarly
+// to how they do for BlindedCredentialSecretsCorrectnessProof (see comments next
+// to its VCA definition in anoncreds-clsignatures-rs).
+#[cfg(feature="vca")]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureCorrectnessProof {
+    pub not_used: String
+}
+
+#[cfg(feature="vca")]
+impl SignatureCorrectnessProof {
+    pub fn try_clone(&self) -> ClResult<SignatureCorrectnessProof> {
+        Ok(self.clone())
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(not(feature="vca"))]
 pub struct Witness {
     pub(crate) omega: PointG2Inf,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(feature="vca")]
+pub struct Witness {
+    pub witness: AccumulatorMembershipWitness,
+}
+
+#[cfg(not(feature="vca"))]
 impl Witness {
     pub fn new<RTA>(
         rev_idx: u32,
@@ -1014,6 +1323,13 @@ pub struct WitnessSignature {
     pub(crate) g_i: PointG1,
 }
 
+// TODO: it may make sense to store link secret *after*
+// normal attributes, and eliminate the "offsets" use for regular attributes
+#[cfg(feature = "vca")]
+pub static LINK_SECRET_INDEX  : usize   = 0;
+#[cfg(feature = "vca")]
+pub static LINK_SECRET_OFFSET : usize = LINK_SECRET_INDEX + 1;
+
 /// Secret key encoded in a credential that is used to prove that prover owns the credential; can be used to
 /// prove linkage across credentials.
 /// Prover blinds link secret, generating `BlindedCredentialSecrets` and `CredentialSecretsBlindingFactors` (blinding factors)
@@ -1054,6 +1370,7 @@ impl From<LinkSecret> for BigNumber {
 }
 
 /// Blinded Master Secret uses by Issuer in credential creation.
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlindedCredentialSecrets {
@@ -1063,6 +1380,7 @@ pub struct BlindedCredentialSecrets {
     pub(crate) committed_attributes: BTreeMap<String, BigNumber>,
 }
 
+#[cfg(not(feature="vca"))]
 impl BlindedCredentialSecrets {
     pub fn try_clone(&self) -> ClResult<Self> {
         Ok(Self {
@@ -1074,7 +1392,23 @@ impl BlindedCredentialSecrets {
     }
 }
 
+/// Blinded Master Secret uses by Issuer in credential creation.
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlindedCredentialSecrets {
+    pub blind_info_for_signer: BlindInfoForSigner
+}
+
+#[cfg(feature="vca")]
+impl BlindedCredentialSecrets {
+    pub fn try_clone(&self) -> ClResult<Self> {
+        Ok(self.clone())
+    }
+}
+
 /// `CredentialSecretsBlindingFactors` used by Prover for post processing of credentials received from Issuer.
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialSecretsBlindingFactors {
@@ -1082,6 +1416,7 @@ pub struct CredentialSecretsBlindingFactors {
     pub(crate) vr_prime: Option<GroupOrderElement>,
 }
 
+#[cfg(not(feature="vca"))]
 impl CredentialSecretsBlindingFactors {
     pub fn try_clone(&self) -> ClResult<Self> {
         Ok(Self {
@@ -1089,6 +1424,13 @@ impl CredentialSecretsBlindingFactors {
             vr_prime: self.vr_prime,
         })
     }
+}
+
+#[cfg(feature="vca")]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CredentialSecretsBlindingFactors {
+    pub blinded_attributes: Vec<CredAttrIndexAndDataValue>,
+    pub info_for_unblinding: InfoForUnblinding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1105,6 +1447,7 @@ pub struct RevocationBlindedCredentialSecretsFactors {
     pub(crate) vr_prime: GroupOrderElement,
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlindedCredentialSecretsCorrectnessProof {
@@ -1114,6 +1457,18 @@ pub struct BlindedCredentialSecretsCorrectnessProof {
     pub(crate) r_caps: BTreeMap<String, BigNumber>, // Blinding values for m_caps
 }
 
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlindedCredentialSecretsCorrectnessProof {
+    // TODO: VCA does not expose a proof of knowledge of the blinding secrets.  Potentially in
+    // future it could so so.  However, VCA implementations are expected to create the proof and
+    // include it in the BlindedCredentialSecrets created by create_blind_signing_info, and to
+    // verify that proof when received in a call to sign_with_blinded_attributes.
+    pub not_used: String
+}
+
+#[cfg(not(feature="vca"))]
 impl BlindedCredentialSecretsCorrectnessProof {
     pub fn try_clone(&self) -> ClResult<Self> {
         Ok(Self {
@@ -1122,6 +1477,13 @@ impl BlindedCredentialSecretsCorrectnessProof {
             m_caps: helpers::clone_bignum_btreemap(&self.m_caps)?,
             r_caps: helpers::clone_bignum_btreemap(&self.r_caps)?,
         })
+    }
+}
+
+#[cfg(feature="vca")]
+impl BlindedCredentialSecretsCorrectnessProof {
+    pub fn try_clone(&self) -> ClResult<Self> {
+        Ok(self.clone())
     }
 }
 
@@ -1240,11 +1602,19 @@ pub struct Proof {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(not(feature="vca"))]
 pub struct SubProof {
     pub(crate) primary_proof: PrimaryProof,
     pub(crate) non_revoc_proof: Option<NonRevocProof>,
 }
 
+// VCA does not require subproofs
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(feature="vca")]
+pub struct SubProof;
+
+#[cfg(not(feature="vca"))]
 impl SubProof {
     pub fn revealed_attrs(&self) -> ClResult<HashMap<String, String>> {
         let mut res = HashMap::new();
@@ -1263,11 +1633,19 @@ impl SubProof {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregatedProof {
     pub(crate) c_hash: BigNumber,
     pub(crate) c_list: Vec<Vec<u8>>,
+}
+
+#[cfg(feature="vca")]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AggregatedProof {
+    pub proof: WarningsAndDataForVerifier
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -1559,6 +1937,7 @@ pub type Nonce = BigNumber;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiableCredential {
     pub(crate) pub_key: CredentialPublicKey,
+    #[cfg(not(feature="vca"))]
     pub(crate) sub_proof_request: SubProofRequest,
     pub(crate) credential_schema: CredentialSchema,
     pub(crate) non_credential_schema: NonCredentialSchema,
@@ -1607,6 +1986,7 @@ impl AppendByteArray for Vec<Vec<u8>> {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 mod tests {
     use super::*;

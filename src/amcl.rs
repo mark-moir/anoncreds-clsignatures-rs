@@ -4,6 +4,7 @@ use amcl::bn254::ecp2::ECP2;
 use amcl::bn254::fp::FP;
 use amcl::bn254::fp12::FP12;
 use amcl::bn254::fp2::FP2;
+#[cfg(not(feature = "vca"))]
 use amcl::bn254::pair::{ate, ate2, fexp, g1mul, g2mul, gtpow};
 use amcl::bn254::rom::{CURVE_ORDER, MODBYTES};
 use amcl::rand::RAND;
@@ -88,11 +89,13 @@ impl PointG1 {
     pub const BYTES_REPR_SIZE: usize = MODBYTES * 4;
 
     /// Creates new random PointG1
+    #[cfg(not(feature = "vca"))]
     pub fn new() -> ClResult<Self> {
         Self::new_generator()?.mul(&GroupOrderElement::new()?)
     }
 
     /// Creates new infinity PointG1
+    #[cfg(not(feature = "vca"))]
     pub fn new_inf() -> ClResult<Self> {
         let mut r = ECP::new();
         r.inf();
@@ -100,6 +103,7 @@ impl PointG1 {
     }
 
     /// Create the generator point
+    #[cfg(not(feature = "vca"))]
     pub fn new_generator() -> ClResult<Self> {
         Ok(PointG1 {
             point: ECP::generator(),
@@ -112,6 +116,7 @@ impl PointG1 {
     }
 
     /// PointG1 * PointG1
+    #[cfg(not(feature = "vca"))]
     pub fn add(&self, q: &PointG1) -> ClResult<Self> {
         let mut r = self.point;
         let point = q.point;
@@ -120,6 +125,7 @@ impl PointG1 {
     }
 
     /// PointG1 / PointG1
+    #[cfg(not(feature = "vca"))]
     pub fn sub(&self, q: &PointG1) -> ClResult<Self> {
         let mut r = self.point;
         let point = q.point;
@@ -128,6 +134,7 @@ impl PointG1 {
     }
 
     /// 1 / PointG1
+    #[cfg(not(feature = "vca"))]
     pub fn neg(&self) -> ClResult<Self> {
         let mut r = self.point;
         r.neg();
@@ -135,6 +142,7 @@ impl PointG1 {
     }
 
     /// PointG1 ^ GroupOrderElement
+    #[cfg(not(feature = "vca"))]
     pub fn mul(&self, e: &GroupOrderElement) -> ClResult<Self> {
         let r = self.point;
         let mut bn = e.bn;
@@ -247,11 +255,13 @@ impl PointG2 {
     pub const BYTES_REPR_SIZE: usize = MODBYTES * 4;
 
     /// Creates new random PointG2
+    #[cfg(not(feature = "vca"))]
     pub fn new() -> ClResult<Self> {
         Self::new_generator()?.mul(&GroupOrderElement::new()?)
     }
 
     /// Creates new infinity PointG2
+    #[cfg(not(feature = "vca"))]
     pub fn new_inf() -> ClResult<Self> {
         let mut point = ECP2::new();
         point.inf();
@@ -259,6 +269,7 @@ impl PointG2 {
     }
 
     /// Create the generator point
+    #[cfg(not(feature = "vca"))]
     pub fn new_generator() -> ClResult<PointG2> {
         Ok(PointG2 {
             point: ECP2::generator(),
@@ -271,6 +282,7 @@ impl PointG2 {
     }
 
     /// PointG2 * PointG2
+    #[cfg(not(feature = "vca"))]
     pub fn add(&self, q: &PointG2) -> ClResult<PointG2> {
         let mut r = self.point;
         let point = q.point;
@@ -280,6 +292,7 @@ impl PointG2 {
     }
 
     /// PointG2 / PointG2
+    #[cfg(not(feature = "vca"))]
     pub fn sub(&self, q: &PointG2) -> ClResult<PointG2> {
         let mut r = self.point;
         let point = q.point;
@@ -288,6 +301,7 @@ impl PointG2 {
         Ok(PointG2 { point: r })
     }
 
+    #[cfg(not(feature = "vca"))]
     pub fn neg(&self) -> ClResult<PointG2> {
         let mut r = self.point;
         r.neg();
@@ -295,6 +309,7 @@ impl PointG2 {
     }
 
     /// PointG2 ^ GroupOrderElement
+    #[cfg(not(feature = "vca"))]
     pub fn mul(&self, e: &GroupOrderElement) -> ClResult<PointG2> {
         let r = self.point;
         let bn = e.bn;
@@ -387,14 +402,17 @@ serializable_crypto_primitive!(PointG2);
 pub struct PointG2Inf(pub PointG2);
 
 impl PointG2Inf {
+    #[cfg(not(feature = "vca"))]
     pub const BYTES_REPR_SIZE: usize = PointG2::BYTES_REPR_SIZE;
 
     /// Creates new infinity PointG2Inf
+    #[cfg(not(feature = "vca"))]
     pub fn new_inf() -> ClResult<Self> {
         Ok(Self(PointG2::new_inf()?))
     }
 
     /// Checks infinity
+    #[cfg(not(feature = "vca"))]
     pub fn is_inf(&self) -> ClResult<bool> {
         self.0.is_inf()
     }
@@ -631,6 +649,7 @@ impl Pair {
     pub const BYTES_REPR_SIZE: usize = MODBYTES * 16;
 
     /// e(PointG1, PointG2)
+    #[cfg(not(feature = "vca"))]
     pub fn pair(p: &PointG1, q: &PointG2) -> ClResult<Self> {
         let mut result = fexp(&ate(&q.point, &p.point));
         result.reduce();
@@ -639,6 +658,7 @@ impl Pair {
     }
 
     /// e(PointG1, PointG2, PointG1_1, PointG2_1)
+    #[cfg(not(feature = "vca"))]
     pub fn pair2(p: &PointG1, q: &PointG2, r: &PointG1, s: &PointG2) -> ClResult<Self> {
         let mut result = fexp(&ate2(&q.point, &p.point, &s.point, &r.point));
         result.reduce();
@@ -654,6 +674,7 @@ impl Pair {
     }
 
     /// e() * e()
+    #[cfg(not(feature = "vca"))]
     pub fn mul(&self, b: &Pair) -> ClResult<Pair> {
         let mut base = self.pair;
         base.mul(&b.pair);
@@ -662,6 +683,7 @@ impl Pair {
     }
 
     /// e() ^ GroupOrderElement
+    #[cfg(not(feature = "vca"))]
     pub fn pow(&self, b: &GroupOrderElement) -> ClResult<Pair> {
         Ok(Pair {
             pair: gtpow(&self.pair, &b.bn),
@@ -669,12 +691,14 @@ impl Pair {
     }
 
     /// 1 / e()
+    #[cfg(not(feature = "vca"))]
     pub fn inverse(&self) -> ClResult<Pair> {
         let mut r = self.pair;
         r.conj();
         Ok(Pair { pair: r })
     }
 
+    #[cfg(not(feature = "vca"))]
     pub fn is_unity(&self) -> ClResult<bool> {
         Ok(self.pair.isunity())
     }
@@ -853,6 +877,7 @@ fn is_valid_pair(point: &FP12) -> bool {
     lhs.equals(&rhs)
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -942,6 +967,7 @@ mod tests {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(feature = "serde")]
 #[cfg(test)]
 mod serialization_tests {

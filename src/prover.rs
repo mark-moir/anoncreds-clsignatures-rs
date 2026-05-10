@@ -1,18 +1,36 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::iter::FromIterator;
+use version_specific_imports::*;
 
-use crate::amcl::*;
+#[cfg(not(feature = "vca"))]
+mod version_specific_imports {
+    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+    pub use std::iter::FromIterator;
+    pub use crate::amcl::*;
+    pub use crate::constants::*;
+    pub use crate::hash::hash_list_to_bignum;
+    pub use crate::helpers::*;
+    pub use crate::types::*;
+}
+
+#[cfg(feature = "vca")]
+mod version_specific_imports {
+    pub use crate::VCA_API;
+    pub use credx::vca::api::types::{
+        BlindSigningInfo,
+        CredAttrIndexAndDataValue,
+        ProofMode::Strict,
+        SignerPublicData
+    };
+}
+
 use crate::bn::BigNumber;
-use crate::constants::*;
 use crate::error::Result as ClResult;
-use crate::hash::hash_list_to_bignum;
-use crate::helpers::*;
-use crate::types::*;
 
 /// Credentials owner that can proof and partially disclose the credentials to verifier.
+#[cfg(not(feature="vca"))]
 #[derive(Copy, Clone, Debug)]
 pub struct Prover;
 
+#[cfg(not(feature="vca"))]
 impl Prover {
     /// Creates a link secret.
     ///
@@ -806,7 +824,26 @@ impl Prover {
     }
 }
 
+#[cfg(feature="vca")]
+pub fn blind_credential_secrets(
+    signer_public_data: &SignerPublicData,
+    blind_attrs: &[CredAttrIndexAndDataValue],
+    credential_nonce: &BigNumber,
+) -> ClResult<BlindSigningInfo> {
+
+    let nonce = crate::vca_nonce_from_cl_nonce(credential_nonce);
+    (VCA_API.create_blind_signing_info)(
+        rand::random(),
+        &nonce,
+        signer_public_data,
+        blind_attrs,
+        Strict,
+    ).map_err(|e| err_msg!("blind_credential_secrets: {}",
+                           format!("{e:?}")))
+}
+
 #[derive(Debug)]
+#[cfg(not(feature = "vca"))]
 pub struct ProofBuilder {
     common_attributes: HashMap<String, BigNumber>,
     init_proofs: Vec<InitProof>,
@@ -814,6 +851,7 @@ pub struct ProofBuilder {
     tau_list: Vec<Vec<u8>>,
 }
 
+#[cfg(not(feature = "vca"))]
 impl ProofBuilder {
     /// Creates m_tildes for attributes that will be the same across all subproofs
     pub fn add_common_attribute(&mut self, attr_name: &str) -> ClResult<()> {
@@ -937,6 +975,7 @@ impl ProofBuilder {
         )?;
 
         let mut non_revoc_init_proof = None;
+
         let m2_tilde: BigNumber = bn_rand(LARGE_M2TILDE)?;
 
         if let (Some(r_cred), &Some(r_reg), Some(r_pub_key), &Some(witness)) = (
@@ -1820,6 +1859,7 @@ impl ProofBuilder {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2499,6 +2539,7 @@ mod tests {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 #[allow(unused)]
 pub mod mocks {

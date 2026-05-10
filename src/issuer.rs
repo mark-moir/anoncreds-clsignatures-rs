@@ -1,13 +1,28 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use crate::amcl::*;
 use crate::bn::BigNumber;
-use crate::constants::*;
 use crate::error::Result as ClResult;
 use crate::hash::{hash_list_to_bignum, ByteOrder};
 use crate::helpers::*;
 use crate::types::*;
+use crate::validate_issuance_by_default;
+
+pub use version_specific_imports::*;
+
+#[cfg(not(feature = "vca"))]
+mod version_specific_imports {
+    pub use crate::amcl::*;
+    pub use crate::constants::*;
+}
+
+#[cfg(feature = "vca")]
+mod version_specific_imports {
+    pub use crate::{vca_nonce_from_cl_nonce, VCA_API};
+    pub use crate::types::BlindedOrUnblindedSignature::*;
+    pub use credx::vca::api::types::ClaimType::*;
+    pub use credx::vca::api::types::ProofMode::*;
+}
 
 /// Trust source that provides credentials to prover.
 #[derive(Copy, Clone, Debug)]
@@ -74,7 +89,7 @@ impl Issuer {
         );
 
         let (p_pub_key, p_priv_key, p_key_meta) =
-            Issuer::_new_credential_primary_keys(credential_schema, non_credential_schema)?;
+            Issuer::_new_credential_primary_keys(credential_schema, non_credential_schema, support_revocation)?;
 
         let (r_pub_key, r_priv_key) = if support_revocation {
             Issuer::_new_credential_revocation_keys()
@@ -150,6 +165,8 @@ impl Issuer {
         let (rev_key_pub, rev_key_priv) =
             Issuer::_new_revocation_registry_keys(cred_rev_pub_key, max_cred_num)?;
 
+        // We do not call validate_issuance_by_default here for reason explained in
+        // RevocationRegistry::_initial_state
         let rev_reg = RevocationRegistry::_initial_state(
             cred_rev_pub_key,
             &rev_key_priv,
@@ -157,11 +174,14 @@ impl Issuer {
             issuance_by_default,
         )?;
 
+        #[cfg(not(feature="vca"))]
         let rev_tails_generator = RevocationTailsGenerator::new(
             max_cred_num,
             rev_key_priv.gamma,
             cred_rev_pub_key.g_dash,
         );
+        #[cfg(feature="vca")]
+        let rev_tails_generator = RevocationTailsGenerator;
 
         trace!("Issuer::new_revocation_registry_def: <<< rev_key_pub: {:?}, rev_key_priv: {:?}, rev_reg: {:?}, rev_tails_generator: {:?}",
                rev_key_pub, secret!(&rev_key_priv), rev_reg, rev_tails_generator);
@@ -170,6 +190,7 @@ impl Issuer {
     }
 
     /// Creates and returns a new tails file generator for a revocation registry definition.
+    #[cfg(not(feature="vca"))]
     pub fn revocation_tails_generator(
         credential_pub_key: &CredentialPublicKey,
         rev_key_priv: &RevocationKeyPrivate,
@@ -186,6 +207,12 @@ impl Issuer {
         ))
     }
 
+    #[cfg(feature="vca")]
+    pub fn revocation_tails_generator(
+    ) -> ClResult<RevocationTailsGenerator> {
+        Ok(RevocationTailsGenerator)
+    }
+
     /// Creates and returns credential values entity builder.
     ///
     /// The purpose of credential values builder is building of credential values entity that
@@ -200,6 +227,7 @@ impl Issuer {
     /// credential_values_builder.add_dec_known("name", "1139481716457488690172217916278103335").unwrap();
     /// let _credential_values = credential_values_builder.finalize().unwrap();
     /// ```
+    #[cfg(not(feature="vca"))]
     pub fn new_credential_values_builder() -> ClResult<CredentialValuesBuilder> {
         let res = CredentialValuesBuilder::new()?;
         Ok(res)
@@ -219,6 +247,8 @@ impl Issuer {
     ///
     /// # Example
     /// ```
+    /// #[cfg(not(feature="vca"))]
+    /// {
     /// use anoncreds_clsignatures::new_nonce;
     /// use anoncreds_clsignatures::Issuer;
     /// use anoncreds_clsignatures::Prover;
@@ -258,6 +288,7 @@ impl Issuer {
     ///                             &credential_values,
     ///                             &credential_pub_key,
     ///                             &credential_priv_key).unwrap();
+    /// }
     /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn sign_credential(
@@ -299,7 +330,17 @@ impl Issuer {
         // In the anoncreds whitepaper, `credential context` is denoted by `m2`
         let cred_context = Issuer::_gen_credential_context(prover_id, None)?;
 
+        #[cfg(not(feature="vca"))]
         let (p_cred, q) = Issuer::_new_primary_credential(
+            &cred_context,
+            credential_pub_key,
+            credential_priv_key,
+            blinded_credential_secrets,
+            credential_values,
+        )?;
+
+        #[cfg(feature="vca")]
+        let (p_cred, _) = Issuer::_new_primary_credential(
             &cred_context,
             credential_pub_key,
             credential_priv_key,
@@ -312,6 +353,7 @@ impl Issuer {
             r_credential: None,
         };
 
+        #[cfg(not(feature="vca"))]
         let signature_correctness_proof = Issuer::_new_signature_correctness_proof(
             &credential_pub_key.p_key,
             &credential_priv_key.p_key,
@@ -319,6 +361,9 @@ impl Issuer {
             &q,
             credential_issuance_nonce,
         )?;
+
+        #[cfg(feature="vca")]
+        let signature_correctness_proof = Issuer::_new_signature_correctness_proof()?;
 
         trace!(
             "Issuer::sign_credential: <<< cred_signature: {:?}, signature_correctness_proof: {:?}",
@@ -348,6 +393,8 @@ impl Issuer {
     ///
     /// # Example
     /// ```
+    /// #[cfg(not(feature = "vca"))]
+    /// {
     /// use anoncreds_clsignatures::{new_nonce, SimpleTailsAccessor};
     /// use anoncreds_clsignatures::Issuer;
     /// use anoncreds_clsignatures::Prover;
@@ -397,6 +444,7 @@ impl Issuer {
     ///                                        false,
     ///                                        &mut rev_reg,
     ///                                        &rev_key_priv).unwrap();
+    /// }
     /// ```
     pub fn sign_credential_with_revoc(
         prover_id: &str,
@@ -442,10 +490,25 @@ impl Issuer {
             credential_values,
         )?;
 
+        #[cfg(not(feature="vca"))]
         let (r_cred, witness, rev_reg_delta) = Issuer::_new_non_revocation_credential(
             rev_idx,
             &cred_context,
             blinded_credential_secrets,
+            credential_pub_key,
+            credential_priv_key,
+            max_cred_num,
+            issuance_by_default,
+            rev_reg,
+            rev_key_priv,
+        )?;
+
+        validate_issuance_by_default(issuance_by_default)?;
+        #[cfg(feature="vca")]
+        let (r_cred, witness, rev_reg_delta) = Issuer::_new_non_revocation_credential(
+            rev_idx,
+            // &cred_context,
+            // blinded_credential_secrets,
             credential_pub_key,
             credential_priv_key,
             max_cred_num,
@@ -459,6 +522,7 @@ impl Issuer {
             r_credential: Some(r_cred),
         };
 
+        #[cfg(not(feature="vca"))]
         let signature_correctness_proof = Issuer::_new_signature_correctness_proof(
             &credential_pub_key.p_key,
             &credential_priv_key.p_key,
@@ -466,6 +530,9 @@ impl Issuer {
             &q,
             credential_issuance_nonce,
         )?;
+
+        #[cfg(feature="vca")]
+        let signature_correctness_proof = Issuer::_new_signature_correctness_proof()?;
 
         trace!("Issuer::sign_credential: <<< cred_signature: {:?}, signature_correctness_proof: {:?}, witness: {:?}, rev_reg_delta: {:?}",
                secret!(&cred_signature), signature_correctness_proof, witness, rev_reg_delta);
@@ -539,6 +606,7 @@ impl Issuer {
     ///                                        &rev_key_priv).unwrap();
     /// Issuer::revoke_credential(&mut rev_reg, max_cred_num, rev_idx, &cred_pub_key, &rev_key_priv).unwrap();
     /// ```
+    #[cfg(not(feature="vca"))]
     pub fn revoke_credential(
         rev_reg: &mut RevocationRegistry,
         max_cred_num: u32,
@@ -574,6 +642,23 @@ impl Issuer {
         );
 
         Ok(rev_reg_delta)
+    }
+
+    #[cfg(feature="vca")]
+    pub fn revoke_credential(
+        rev_reg: &mut RevocationRegistry,
+        max_cred_num: u32,
+        rev_idx: u32,
+        _credential_pub_key: &CredentialPublicKey,
+        _rev_key_priv: &RevocationKeyPrivate,
+    ) -> ClResult<RevocationRegistryDelta> {
+        trace!(
+            "Issuer::revoke_credential: >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
+            rev_reg,
+            max_cred_num,
+            secret!(rev_idx)
+        );
+        todo!("VCA: revoke_credential");
     }
 
     /// Unrevoke a credential by a rev_idx in a given revocation registry
@@ -639,6 +724,7 @@ impl Issuer {
     /// Issuer::revoke_credential(&mut rev_reg, max_cred_num, rev_idx, &cred_pub_key, &rev_key_priv).unwrap();
     /// Issuer::unrevoke_credential(&mut rev_reg, max_cred_num, rev_idx, &cred_pub_key, &rev_key_priv).unwrap();
     /// ```
+    #[cfg(not(feature="vca"))]
     pub fn unrevoke_credential(
         rev_reg: &mut RevocationRegistry,
         max_cred_num: u32,
@@ -676,6 +762,22 @@ impl Issuer {
         Ok(rev_reg_delta)
     }
 
+    #[cfg(feature="vca")]
+    pub fn unrevoke_credential(
+        rev_reg: &mut RevocationRegistry,
+        max_cred_num: u32,
+        rev_idx: u32,
+        _credential_pub_key: &CredentialPublicKey,
+        _rev_key_priv: &RevocationKeyPrivate,
+    ) -> ClResult<RevocationRegistryDelta> {
+        trace!(
+            "Issuer::unrevoke_credential: >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
+            rev_reg,
+            max_cred_num,
+            secret!(rev_idx)
+        );
+        todo!("VCA: unrevoke_credential")
+    }
     /// Updates a revocation registry with sets of issued and revoked credential indexes.
     ///
     /// # Arguments
@@ -742,6 +844,7 @@ impl Issuer {
     /// let revoked = BTreeSet::new();
     /// Issuer::update_revocation_registry(&mut rev_reg, max_cred_num, issued, revoked, &cred_pub_key, &rev_key_priv).unwrap();
     /// ```
+    #[cfg(not(feature="vca"))]
     pub fn update_revocation_registry(
         rev_reg: &mut RevocationRegistry,
         max_cred_num: u32,
@@ -759,6 +862,7 @@ impl Issuer {
         );
 
         let prev_acc = rev_reg.accum;
+
         rev_reg.accum = Self::_update_revocation_accumulator(
             prev_acc,
             max_cred_num,
@@ -785,6 +889,72 @@ impl Issuer {
         Ok(rev_reg_delta)
     }
 
+    #[cfg(feature="vca")]
+    pub fn update_revocation_registry(
+        rev_reg: &mut RevocationRegistry,
+        max_cred_num: u32,
+        issued: BTreeSet<u32>,
+        revoked: BTreeSet<u32>,
+        _credential_pub_key: &CredentialPublicKey,
+        rev_key_priv: &RevocationKeyPrivate,
+    ) -> ClResult<RevocationRegistryDelta> {
+        trace!(
+            "Issuer::update_revocation_registry: >>> rev_reg: {:?}, max_cred_num: {:?}, issued: {:?}, revoked: {:?}",
+            rev_reg,
+            max_cred_num,
+            secret!(&issued),
+            secret!(&revoked)
+        );
+
+        let prev_acc = rev_reg.accum.clone();
+
+        let (accum, update_info) = if revoked.is_empty() {
+            (prev_acc.accumulator.clone(), None)
+        } else {
+            let accumulator_add_remove = VCA_API.accumulator_add_remove.clone();
+            let accumulator_data = rev_key_priv.accumulator_data.clone();
+            // NOTE: we do not add members to the acccumulator as they have already been added
+            // because VCA only supports issuance_by_default = true.
+            let adds = HashMap::new();
+            let removes = revoked
+                .iter()
+                .map(|idx| accumulator_element_from_rev_reg_index(*idx))
+                .collect::<ClResult<Vec<_>>>()?;
+            let AccumulatorAddRemoveResponse {
+                accumulator,
+                witness_update_info,
+                ..
+            } = accumulator_add_remove(&accumulator_data, &prev_acc.accumulator, &adds, &removes)
+                .map_err(|e| err_msg!("update_revocation_registry: {:?}", e))?;
+            (accumulator, Some(witness_update_info))
+        };
+
+        rev_reg.accum = Accumulator{accumulator: accum,
+                                    accum_witness_update_info: update_info.clone(),
+                                    // Each time we update a revocation registry, we increment the
+                                    // associated sequence number This is to enable informative
+                                    // error messages in case a user attempts to update out of
+                                    // sequence
+                                    sequence_number: rev_reg.accum.sequence_number + 1
+        };
+
+        let rev_reg_delta = RevocationRegistryDelta {
+            prev_accum: Some(prev_acc),
+            accum: rev_reg.accum.clone(),
+            issued: HashSet::from_iter(issued),
+            revoked: HashSet::from_iter(revoked),
+            accumulator_witness_update_info: update_info
+        };
+
+        trace!(
+            "Issuer::update_revocation_registry: <<< rev_reg_delta: {:?}",
+            rev_reg_delta
+        );
+
+        Ok(rev_reg_delta)
+    }
+
+    #[cfg(not(feature="vca"))]
     pub(crate) fn _update_revocation_accumulator(
         accum: Accumulator,
         max_cred_num: u32,
@@ -818,9 +988,23 @@ impl Issuer {
         Ok(new_acc)
     }
 
+    #[cfg(feature="vca")]
+    pub(crate) fn _update_revocation_accumulator(
+        _accum: Accumulator,
+        _max_cred_num: u32,
+        _updates: impl IntoIterator<Item = (u32, bool)>,
+        _credential_pub_key: &CredentialPublicKey,
+        _rev_key_priv: &RevocationKeyPrivate,
+    ) -> ClResult<Accumulator> {
+        todo!("_update_revocation_accumulator = VCA accumulator_add_remove")
+    }
+
+    #[cfg(not(feature="vca"))]
     fn _new_credential_primary_keys(
         credential_schema: &CredentialSchema,
         non_credential_schema: &NonCredentialSchema,
+        _support_revocation: bool // Required only to make function signatre the same in VCA and
+                                  // non-VCA to avoid duplicating the calling function
     ) -> ClResult<(
         CredentialPrimaryPublicKey,
         CredentialPrimaryPrivateKey,
@@ -879,6 +1063,61 @@ impl Issuer {
         Ok((cred_pr_pub_key, cred_pr_priv_key, cred_pr_pub_key_metadata))
     }
 
+    #[cfg(feature="vca")]
+    fn _new_credential_primary_keys(
+        credential_schema: &CredentialSchema,
+        non_credential_schema: &NonCredentialSchema,
+        support_revocation: bool
+    ) -> ClResult<(
+        CredentialPrimaryPublicKey,
+        CredentialPrimaryPrivateKey,
+        CredentialPrimaryPublicKeyMetadata,
+    )> {
+
+        let expected_non_credential_schema : BTreeSet<String> = BTreeSet::from([ "master_secret".to_string() ]);
+        assert_eq!(expected_non_credential_schema, non_credential_schema.attrs, "expected master_secret");
+        let vca_schema = vca_schema_from_credential_schema(credential_schema, support_revocation);
+
+        let create_signer_data = VCA_API.create_signer_data.clone();
+        let nonce = rand::random();
+        // For now, exactly one blinded attribute, link secret at index 0 (but see TODO-revoation comment
+        // in vca_schema_from_attr_names definition)
+        let sd = create_signer_data(nonce, &vca_schema, &[0], Strict)
+            .map_err(|e| err_msg!("{:?}", e))?;
+
+        let range_proof_proving_key = if vca_schema.contains(&CTInt) {
+            let create_range_proof_proving_key =
+                VCA_API.create_range_proof_proving_key.clone();
+            let nonce_for_range_proof_proving_key = rand::random();
+            Some(create_range_proof_proving_key(
+                nonce_for_range_proof_proving_key,
+            ).map_err(|e| err_msg!("{:?}", e))?)
+        } else {
+            None
+        };
+
+        let mut attribute_names = credential_schema.attrs.clone().into_iter()
+            .collect::<Vec<_>>();
+        attribute_names.insert(0, "link_secret".to_string());
+
+        let cred_pr_pub_key = CredentialPrimaryPublicKey {
+            signer_public_data: *sd.signer_public_data.clone(),
+            attribute_names: AttributeNames(attribute_names),
+            range_proof_proving_key
+        };
+
+        let cred_pr_priv_key = CredentialPrimaryPrivateKey {
+            signer_secret_data: sd.clone()
+        };
+
+        let cred_pr_pub_key_metadata = CredentialPrimaryPublicKeyMetadata {
+            not_used: "BOGUS value, not used".to_string()
+        };
+
+        Ok((cred_pr_pub_key, cred_pr_priv_key, cred_pr_pub_key_metadata))
+    }
+
+    #[cfg(not(feature="vca"))]
     fn _new_credential_revocation_keys() -> ClResult<(
         CredentialRevocationPublicKey,
         CredentialRevocationPrivateKey,
@@ -922,6 +1161,28 @@ impl Issuer {
         Ok((cred_rev_pub_key, cred_rev_priv_key))
     }
 
+    #[cfg(feature="vca")]
+    fn _new_credential_revocation_keys() -> ClResult<(
+        CredentialRevocationPublicKey,
+        CredentialRevocationPrivateKey,
+    )> {
+        trace!("Issuer::_new_credential_revocation_keys: >>>");
+
+        let create_membership_proving_key = VCA_API.create_membership_proving_key. clone();
+        let accumulator_membership_proving_key =
+            create_membership_proving_key(rand::random())
+            .map_err(|e| err_msg!("_new_credential_revocation_keys: {:?}", e))?;
+        let cred_rev_pub_key = CredentialRevocationPublicKey {
+            accumulator_membership_proving_key,
+        };
+        let cred_rev_priv_key = CredentialRevocationPrivateKey;
+
+        trace!("Issuer::_new_credential_revocation_keys: <<< cred_rev_pub_key: {:?}, cred_rev_priv_key: {:?}", cred_rev_pub_key, secret!(&cred_rev_priv_key));
+
+        Ok((cred_rev_pub_key, cred_rev_priv_key))
+    }
+
+    #[cfg(not(feature="vca"))]
     fn _new_credential_key_correctness_proof(
         cred_pr_pub_key: &CredentialPrimaryPublicKey,
         cred_pr_priv_key: &CredentialPrimaryPrivateKey,
@@ -986,6 +1247,17 @@ impl Issuer {
         Ok(key_correctness_proof)
     }
 
+    #[cfg(feature="vca")]
+    fn _new_credential_key_correctness_proof(
+        _cred_pr_pub_key: &CredentialPrimaryPublicKey,
+        _cred_pr_priv_key: &CredentialPrimaryPrivateKey,
+        _cred_pr_pub_key_meta: &CredentialPrimaryPublicKeyMetadata,
+    ) -> ClResult<CredentialKeyCorrectnessProof> {
+        Ok(CredentialKeyCorrectnessProof{ not_used: "not used".to_string() })
+    }
+
+
+    #[cfg(not(feature="vca"))]
     fn _new_revocation_registry_keys(
         cred_rev_pub_key: &CredentialRevocationPublicKey,
         max_cred_num: u32,
@@ -1015,6 +1287,42 @@ impl Issuer {
         Ok((rev_key_pub, rev_key_priv))
     }
 
+    #[cfg(feature="vca")]
+    fn _new_revocation_registry_keys(
+        cred_rev_pub_key: &CredentialRevocationPublicKey,
+        max_cred_num: u32,
+    ) -> ClResult<(RevocationKeyPublic, RevocationKeyPrivate)> {
+        trace!(
+            "Issuer::_new_revocation_registry_keys: >>> cred_rev_pub_key: {:?}, max_cred_num: {:?}",
+            cred_rev_pub_key,
+            max_cred_num
+        );
+
+        let create_accumulator_data = VCA_API.create_accumulator_data.clone();
+        let nonce = rand::random();
+        let create_accumulator_response = create_accumulator_data(nonce)
+            .map_err(|e| err_msg!("{:?}", e))?;
+        let rev_key_pub = RevocationKeyPublic {
+            accumulator_public_data: create_accumulator_response.accumulator_data.accumulator_public_data.clone() };
+        let rev_key_priv = RevocationKeyPrivate {
+            accumulator_data: create_accumulator_response.accumulator_data,
+            initial_accumulator: Accumulator{accumulator: create_accumulator_response.accumulator,
+                                             accum_witness_update_info: None,
+                                             #[cfg(feature="vca")]
+                                             sequence_number: 0  // Accumulator has never been updated
+            }
+        };
+
+        trace!(
+            "Issuer::_new_revocation_registry_keys: <<< rev_key_pub: {:?}, rev_key_priv: {:?}",
+            rev_key_pub,
+            secret!(&rev_key_priv)
+        );
+
+        Ok((rev_key_pub, rev_key_priv))
+    }
+
+    #[cfg(not(feature="vca"))]
     fn _check_blinded_credential_secrets_correctness_proof(
         blinded_cred_secrets: &BlindedCredentialSecrets,
         blinded_cred_secrets_correctness_proof: &BlindedCredentialSecretsCorrectnessProof,
@@ -1095,6 +1403,26 @@ impl Issuer {
         Ok(())
     }
 
+    #[cfg(feature="vca")]
+    fn _check_blinded_credential_secrets_correctness_proof(
+        blinded_cred_secrets: &BlindedCredentialSecrets,
+        // Correctness proof is included in BlindedCredentialSecrets for VCA
+        _blinded_cred_secrets_correctness_proof: &BlindedCredentialSecretsCorrectnessProof,
+        nonce: &Nonce,
+        cred_pr_pub_key: &CredentialPrimaryPublicKey,
+    ) -> ClResult<()> {
+        let verify_blind_signing_info_correctness_proof =
+            VCA_API.verify_blind_signing_info_correctness_proof.clone();
+        let blinded_attr_idxs: Vec<u64> = vec![LINK_SECRET_INDEX as u64];
+        let nonce = vca_nonce_from_cl_nonce(nonce);
+        verify_blind_signing_info_correctness_proof(
+            &cred_pr_pub_key.signer_public_data.signer_public_setup_data,
+            blinded_attr_idxs.as_slice(),
+            &nonce,
+            &blinded_cred_secrets.blind_info_for_signer
+        ).map_err(|e| err_msg!("_check_blinded_credential_secrets_correctness_proof: {:?}", e))
+    }
+
     // In the anoncreds whitepaper, `credential context` is denoted by `m2`
     fn _gen_credential_context(prover_id: &str, rev_idx: Option<u32>) -> ClResult<BigNumber> {
         trace!(
@@ -1122,6 +1450,7 @@ impl Issuer {
         Ok(credential_context)
     }
 
+    #[cfg(not(feature="vca"))]
     fn _new_primary_credential(
         credential_context: &BigNumber,
         cred_pub_key: &CredentialPublicKey,
@@ -1184,6 +1513,35 @@ impl Issuer {
         Ok((pr_cred_sig, q))
     }
 
+    #[cfg(feature="vca")]
+    fn _new_primary_credential(
+        credential_context: &BigNumber,
+        cred_pub_key: &CredentialPublicKey,
+        cred_priv_key: &CredentialPrivateKey,
+        blinded_credential_secrets: &BlindedCredentialSecrets,
+        cred_values: &CredentialValues,
+    ) -> ClResult<(PrimaryCredentialSignature, ())> { // Tuple with () is for signature compatibility with non-vca version
+        trace!("Issuer::_new_primary_credential: >>> credential_context: {:?}, cred_pub_key: {:?}, cred_priv_key: {:?}, blinded_ms: {:?},\
+                cred_values: {:?}", secret!(credential_context), cred_pub_key, secret!(cred_priv_key), blinded_credential_secrets, secret!(cred_values));
+
+        let sign_with_blinded_attributes = VCA_API.sign_with_blinded_attributes.clone();
+
+        let non_blinded_values = &cred_values.attrs_values;
+        let signer_data = cred_priv_key.clone();
+
+        let signature = sign_with_blinded_attributes(
+            rand::random(),
+            non_blinded_values,
+            &blinded_credential_secrets.blind_info_for_signer,
+            &signer_data.p_key.signer_secret_data,
+            Strict,
+        )
+        .map_err(|e| err_msg!(
+            format!("sign failed for {cred_values:?}: {e:?}")))?;
+        Ok((PrimaryCredentialSignature {signature: Blinded(signature)}, ()))
+    }
+
+    #[cfg(not(feature="vca"))]
     fn _sign_primary_credential(
         cred_pub_key: &CredentialPublicKey,
         cred_priv_key: &CredentialPrivateKey,
@@ -1255,6 +1613,7 @@ impl Issuer {
         Ok((a, q))
     }
 
+    #[cfg(not(feature="vca"))]
     fn _new_signature_correctness_proof(
         p_pub_key: &CredentialPrimaryPublicKey,
         p_priv_key: &CredentialPrimaryPrivateKey,
@@ -1290,10 +1649,18 @@ impl Issuer {
         Ok(signature_correctness_proof)
     }
 
+    #[cfg(feature="vca")]
+    fn _new_signature_correctness_proof(
+    ) -> ClResult<SignatureCorrectnessProof> {
+        Ok(SignatureCorrectnessProof {not_used: "_new_signature_correctness_proof".to_string()})
+    }
+
+
     fn _get_index(max_cred_num: u32, rev_idx: u32) -> u32 {
         max_cred_num + 1 - rev_idx
     }
 
+    #[cfg(not(feature="vca"))]
     fn _new_non_revocation_credential(
         rev_idx: u32,
         cred_context: &BigNumber,
@@ -1397,8 +1764,65 @@ impl Issuer {
 
         Ok((non_revocation_cred_sig, witness, rev_reg_delta))
     }
+
+    #[cfg(feature="vca")]
+    fn _new_non_revocation_credential(
+        rev_idx: u32,
+        // cred_context: &BigNumber,
+        // blinded_credential_secrets: &BlindedCredentialSecrets,
+        cred_pub_key: &CredentialPublicKey,
+        cred_priv_key: &CredentialPrivateKey,
+        max_cred_num: u32,
+        issuance_by_default: bool,
+        rev_reg: &mut RevocationRegistry,
+        rev_key_priv: &RevocationKeyPrivate,
+    ) -> ClResult<(
+        NonRevocationCredentialSignature,
+        Witness,
+        Option<RevocationRegistryDelta>,
+    )> {
+        trace!("Issuer::_new_non_revocation_credential: >>> rev_idx: {:?}, cred_pub_key: {:?}, cred_priv_key: {:?}, \
+        max_cred_num: {:?}, issuance_by_default: {:?}, rev_reg: {:?}, rev_key_priv: {:?}",
+               secret!(rev_idx), cred_pub_key, secret!(cred_priv_key), max_cred_num,
+               issuance_by_default, rev_reg, secret!(rev_key_priv));
+
+        if rev_idx == 0 || rev_idx > max_cred_num {
+            return Err(err_msg!("Revocation index is outside of valid range"));
+        }
+
+        let accumulator_element = accumulator_element_from_rev_reg_index(rev_idx)?;
+
+        validate_issuance_by_default(issuance_by_default)?;
+        let (rev_reg_delta, accum, witness) = {
+            let get_accumulator_witness = VCA_API.get_accumulator_witness.clone();
+            let witness = get_accumulator_witness(
+                &rev_key_priv.accumulator_data,
+                &rev_reg.accum.accumulator,
+                &accumulator_element
+            ).map_err(|e| err_msg!("_new_non_revocation_credential: failed to get accumulator witness: {:?}", e))?;
+            (None, rev_reg.accum.clone(), witness.clone())
+        };
+
+        let witness = Witness{witness: witness.clone()};
+        // NOTE: because VCA signs the accumulator element into the primary signature,
+        // the only thing needed here is the index to enable the holder to generate its own
+        // accumulator element
+        let non_revocation_cred_sig = NonRevocationCredentialSignature {
+            i: rev_idx,
+            accumulator_public_data: rev_key_priv.accumulator_data.accumulator_public_data.clone(),
+            accum,
+            witness: witness.clone(),
+            timestamp: None  // Will be filled in by caller
+        };
+
+        trace!("Issuer::_new_non_revocation_credential: <<< non_revocation_cred_sig: {:?}, rev_reg_delta: {:?}",
+               secret!(&non_revocation_cred_sig), rev_reg_delta);
+
+        Ok((non_revocation_cred_sig, witness, rev_reg_delta))
+    }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1759,6 +2183,7 @@ mod tests {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 #[allow(unused)]
 pub mod mocks {

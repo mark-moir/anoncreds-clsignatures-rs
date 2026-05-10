@@ -1,14 +1,25 @@
-use std::cmp::max;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::hash::Hash;
+#[cfg(not(feature = "vca"))]
+pub use version_specific_imports::*;
+
+#[cfg(not(feature = "vca"))]
+mod version_specific_imports {
+    pub use std::cmp::max;
+    pub use std::collections::{BTreeMap, HashMap, HashSet};
+    pub use std::hash::Hash;
+    pub use crate::amcl::{GroupOrderElement, Pair, PointG1};
+}
+
+#[cfg(not(feature = "vca"))]
+use crate::constants::*;
+
+use crate::error::Result as ClResult;
 
 #[cfg(test)]
 use std::cell::RefCell;
 
-use crate::amcl::{GroupOrderElement, Pair, PointG1};
-use crate::bn::{BigNumber, BIGNUMBER_1};
-use crate::constants::*;
-use crate::error::Result as ClResult;
+use crate::bn::BigNumber;
+#[cfg(not(feature = "vca"))]
+use crate::bn::BIGNUMBER_1; // this cannot be reexported from version_specific_imports
 use crate::hash::{hash_to_bignum, ByteOrder};
 use crate::types::*;
 
@@ -17,10 +28,10 @@ thread_local! {
   static USE_MOCKS: RefCell<bool> = RefCell::new(false);
 }
 
-#[cfg(test)]
+#[cfg(all(not(feature = "vca"), test))]
 pub(crate) struct MockHelper {}
 
-#[cfg(test)]
+#[cfg(all(not(feature = "vca"), test))]
 impl MockHelper {
     pub fn inject() {
         USE_MOCKS.with(|use_mocks| {
@@ -36,7 +47,7 @@ impl MockHelper {
 }
 
 pub fn bn_rand(size: usize) -> ClResult<BigNumber> {
-    #[cfg(test)]
+    #[cfg(all(not(feature = "vca"), test))]
     if MockHelper::is_injected() {
         return match size {
             LARGE_NONCE => Ok(BigNumber::from_dec("526193306511429638192053")?),
@@ -66,6 +77,7 @@ pub fn bn_rand(size: usize) -> ClResult<BigNumber> {
     Ok(res)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn bn_rand_range(bn: &BigNumber) -> ClResult<BigNumber> {
     #[cfg(test)]
     if MockHelper::is_injected() {
@@ -101,6 +113,7 @@ pub fn hash_credential_attribute(attribute: &str) -> ClResult<String> {
     encode_attribute(attribute, ByteOrder::Big)?.to_dec()
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn generate_v_prime_prime() -> ClResult<BigNumber> {
     #[cfg(test)]
     if MockHelper::is_injected() {
@@ -121,6 +134,7 @@ pub fn generate_v_prime_prime() -> ClResult<BigNumber> {
     Ok(v_prime_prime)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn generate_prime_in_range(size_bits: usize, range_bits: usize) -> ClResult<BigNumber> {
     #[cfg(test)]
     if MockHelper::is_injected() {
@@ -130,6 +144,7 @@ pub fn generate_prime_in_range(size_bits: usize, range_bits: usize) -> ClResult<
     BigNumber::generate_prime_in_range(size_bits, range_bits)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn generate_safe_prime(size: usize) -> ClResult<BigNumber> {
     #[cfg(test)]
     if MockHelper::is_injected() {
@@ -153,6 +168,7 @@ pub fn generate_safe_prime(size: usize) -> ClResult<BigNumber> {
     Ok(safe_prime)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn gen_x(p: &BigNumber, q: &BigNumber) -> ClResult<BigNumber> {
     #[cfg(test)]
     if MockHelper::is_injected() {
@@ -170,6 +186,7 @@ pub fn gen_x(p: &BigNumber, q: &BigNumber) -> ClResult<BigNumber> {
     Ok(x)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn random_qr(n: &BigNumber) -> ClResult<BigNumber> {
     #[cfg(test)]
     if MockHelper::is_injected() {
@@ -180,6 +197,7 @@ pub fn random_qr(n: &BigNumber) -> ClResult<BigNumber> {
 }
 
 //TODO: FIXME very inefficient code
+#[cfg(not(feature = "vca"))]
 pub fn bitwise_or_big_int(a: &BigNumber, b: &BigNumber) -> ClResult<BigNumber> {
     trace!("Helpers::bitwise_or_big_int: >>> a: {:?}, b: {:?}", a, b);
 
@@ -197,6 +215,7 @@ pub fn bitwise_or_big_int(a: &BigNumber, b: &BigNumber) -> ClResult<BigNumber> {
 }
 
 //Byte order: Little
+#[cfg(not(feature = "vca"))]
 pub fn transform_u32_to_array_of_u8(x: u32) -> Vec<u8> {
     trace!("Helpers::transform_u32_to_array_of_u8: >>> x: {:?}", x);
 
@@ -213,6 +232,7 @@ pub fn transform_u32_to_array_of_u8(x: u32) -> Vec<u8> {
     result
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn get_mtilde<S: ::std::hash::BuildHasher>(
     unrevealed_attrs: &HashSet<String, S>,
     mtilde: &mut HashMap<String, BigNumber, S>,
@@ -233,6 +253,7 @@ pub fn get_mtilde<S: ::std::hash::BuildHasher>(
     Ok(())
 }
 
+#[cfg(not(feature="vca"))]
 pub fn calc_teq<S: ::std::hash::BuildHasher>(
     p_pub_key: &CredentialPrimaryPublicKey,
     a_prime: &BigNumber,
@@ -278,6 +299,7 @@ pub fn calc_teq<S: ::std::hash::BuildHasher>(
     Ok(result)
 }
 
+#[cfg(not(feature="vca"))]
 pub fn calc_tne<S: ::std::hash::BuildHasher>(
     p_pub_key: &CredentialPrimaryPublicKey,
     u: &HashMap<String, BigNumber, S>,
@@ -356,10 +378,12 @@ pub fn calc_tne<S: ::std::hash::BuildHasher>(
     Ok(tau_list)
 }
 
+#[cfg(not(feature = "vca"))]
 fn largest_square_less_than(delta: usize) -> usize {
     (delta as f64).sqrt().floor() as usize
 }
 
+#[cfg(not(feature = "vca"))]
 //Express the natural number `delta` as a sum of four integer squares,
 // i.e `delta = a^2 + b^2 + c^2 + d^2` using Lagrange's four-square theorem
 pub fn four_squares(delta: i32) -> ClResult<HashMap<String, BigNumber>> {
@@ -420,11 +444,13 @@ pub fn four_squares(delta: i32) -> ClResult<HashMap<String, BigNumber>> {
     Ok(res)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn bignum_to_group_element_reduce(num: &BigNumber) -> ClResult<GroupOrderElement> {
     let reduced = num.modulus(&GroupOrderElement::order()?)?;
     GroupOrderElement::from_bytes(&reduced.to_bytes()?)
 }
 
+#[cfg(not(feature="vca"))]
 pub fn create_tau_list_expected_values(
     r_pub_key: &CredentialRevocationPublicKey,
     rev_reg: &RevocationRegistry,
@@ -478,6 +504,7 @@ pub fn create_tau_list_expected_values(
     Ok(non_revoc_proof_tau_list)
 }
 
+#[cfg(not(feature="vca"))]
 pub fn create_tau_list_values(
     r_pub_key: &CredentialRevocationPublicKey,
     rev_reg: &RevocationRegistry,
@@ -577,6 +604,7 @@ pub fn create_tau_list_values(
 ///
 /// # Result
 /// Return the pedersen commitment, i.e `(gen_1^m)*(gen_2^r)`
+#[cfg(not(feature = "vca"))]
 pub fn get_pedersen_commitment(
     gen_1: &BigNumber,
     m: &BigNumber,
@@ -590,6 +618,7 @@ pub fn get_pedersen_commitment(
     Ok(commitment)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn clone_bignum_map<K: Clone + Eq + Hash>(
     other: &HashMap<K, BigNumber>,
 ) -> ClResult<HashMap<K, BigNumber>> {
@@ -600,6 +629,7 @@ pub fn clone_bignum_map<K: Clone + Eq + Hash>(
     Ok(res)
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn clone_bignum_btreemap<K: Clone + Eq + Hash + Ord>(
     other: &BTreeMap<K, BigNumber>,
 ) -> ClResult<BTreeMap<K, BigNumber>> {
@@ -609,6 +639,7 @@ pub fn clone_bignum_btreemap<K: Clone + Eq + Hash + Ord>(
     })
 }
 
+#[cfg(not(feature = "vca"))]
 pub fn clone_credential_value_map<K: Clone + Eq + Ord>(
     other: &BTreeMap<K, CredentialValue>,
 ) -> ClResult<BTreeMap<K, CredentialValue>> {
@@ -631,9 +662,85 @@ pub fn new_nonce() -> ClResult<Nonce> {
     bn_rand(crate::constants::LARGE_NONCE)
 }
 
+#[cfg(feature="vca")]
+pub use vca::*;
+#[cfg(feature="vca")]
+pub mod vca {
+    use super::*;
+    use credx::vca::api::types::*;
+    use credx::vca::api::types::ClaimType::*;
+    use crate::types::CredentialSchema;
+    use crate::VCA_API;
+
+    pub fn claim_type_from_suffix(s: &str) -> ClaimType {
+        let suffixes = [
+            ("_cttext", CTText),
+            ("_ctencryptabletext", CTEncryptableText),
+            ("_ctint", CTInt),
+            ("_dateint", CTInt),
+            ("_accumulator_member", CTAccumulatorMember),
+        ];
+
+        for (suffix, claim_type) in suffixes {
+            if s.ends_with(suffix) {
+                return claim_type;
+            }
+        }
+
+        ClaimType::CTText
+    }
+
+    pub fn vca_schema_from_attr_names(
+        attr_names: &[String],
+        support_revocation: bool
+    )
+        -> Vec<ClaimType> {
+        let mut attr_names = attr_names.to_vec();
+        attr_names.sort();
+        let mut base_schema =
+            attr_names
+            .iter()
+            .map(|s| claim_type_from_suffix(s))
+            .collect::<Vec<_>>();
+        // Add a CTText for the mandatory link secret
+        base_schema.insert(LINK_SECRET_INDEX, CTText);
+
+        if support_revocation {
+            base_schema.push(CTAccumulatorMember)
+        }
+
+        base_schema
+    }
+
+    pub fn vca_schema_from_credential_schema(schema: &CredentialSchema, support_revocation: bool) -> Vec<ClaimType> {
+        // NOTE: attr_names are in sorted order because CredentialSchema stores them in a BTreeSet
+        let attr_names = schema.attrs.iter().map(|s| s.clone()).collect::<Vec<_>>();
+        vca_schema_from_attr_names(&attr_names, support_revocation)
+    }
+
+    pub fn accumulator_member_from_rev_reg_index (idx: u32) ->  String {
+        // TODO: Consider whether these should be unique across different registries.  For now, they
+        // are not.
+        format!("AccumulatorMemberFor-{idx}")
+    }
+
+    pub fn accumulator_element_from_member(member: String) ->  ClResult<AccumulatorElement> {
+        let create_accumulator_element = VCA_API.create_accumulator_element.clone();
+        create_accumulator_element(member.clone())
+        .map_err(|e| err_msg!("accumulator_element_from_member: {member} {:?}", e))
+    }
+
+    pub fn accumulator_element_from_rev_reg_index(idx: u32) ->  ClResult<AccumulatorElement> {
+        accumulator_element_from_member(accumulator_member_from_rev_reg_index(idx))
+    }
+}
+
+
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "vca"))]
     use crate::{issuer, prover};
 
     #[test]
@@ -782,6 +889,7 @@ mod tests {
         */
     }
 
+    #[cfg(not(feature="vca"))]
     #[test]
     fn calc_tne_works() {
         let proof = prover::mocks::ne_proof();
@@ -826,6 +934,7 @@ mod tests {
         45256219426454149503998537986414519426715148839164974816475472185621648644891", res_data[5].to_dec().unwrap());
     }
 
+    #[cfg(not(feature="vca"))]
     #[test]
     fn calc_teq_works() {
         let proof = prover::mocks::eq_proof();

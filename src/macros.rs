@@ -1,3 +1,4 @@
+#[cfg(not(feature = "vca"))]
 macro_rules! hashset {
     ( $( $x:expr ),* ) => {
         {
@@ -10,6 +11,7 @@ macro_rules! hashset {
     }
 }
 
+#[cfg(not(feature = "vca"))]
 macro_rules! hashmap {
     ($( $key: expr => $val: expr ),*) => {
         {
@@ -22,7 +24,7 @@ macro_rules! hashmap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(not(feature = "vca"), test))]
 macro_rules! btreeset {
     ( $( $x:expr ),* ) => {
         {
@@ -35,7 +37,7 @@ macro_rules! btreeset {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(not(feature = "vca"), test))]
 macro_rules! btreemap {
     ($( $key: expr => $val: expr ),*) => {
         {
