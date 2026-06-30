@@ -17,10 +17,13 @@ crate-type = ["cdylib", "rlib"]
 default = ["serde", "openssl_bn"]
 openssl_bn = ["openssl"]
 openssl_vendored = ["openssl_bn", "openssl/vendored"]
+vca = ["dep:credx"]
 
 [dependencies]
 amcl = "0.2"
-glass_pumpkin = "1.9"
+credx = { git = "https://github.com/mark-moir/anoncreds-v2-rs", branch="vca-main", optional = true }
+# see https://github.com/anoncreds/anoncreds-clsignatures-rs/issues/102#issuecomment-4830591710
+glass_pumpkin = "2.0.0-rc"
 log = "0.4"
 num-bigint = { version = "0.4", features = ["rand"] }
 num-integer = "0.1.45"

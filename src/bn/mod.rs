@@ -11,6 +11,7 @@ pub use inner::*;
 
 // Constants that are used throughout the code, so avoiding recomputation.
 pub(crate) static BIGNUMBER_1: Lazy<BigNumber> = Lazy::new(|| BigNumber::from_u32(1).unwrap());
+#[cfg(any(not(feature = "vca"), test))]
 pub(crate) static BIGNUMBER_2: Lazy<BigNumber> = Lazy::new(|| BigNumber::from_u32(2).unwrap());
 
 impl BigNumber {

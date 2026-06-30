@@ -1,6 +1,7 @@
 #[cfg(feature = "serde")]
 extern crate serde;
 
+#[cfg(not(feature="vca"))]
 mod tests {
     use anoncreds_clsignatures::*;
 
@@ -631,6 +632,7 @@ mod tests {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(feature = "openssl_bn")]
 mod openssl_tests {
     use anoncreds_clsignatures::*;
@@ -2097,7 +2099,16 @@ mod openssl_tests {
         }
 
         #[test]
-        fn anoncreds_works_for_multiple_credentials_different_link_secret() {
+        fn anoncreds_works_for_multiple_credentials_different_link_secret_prover_tells_truth() {
+            anoncreds_works_for_multiple_credentials_different_link_secret(false)
+        }
+
+        #[test]
+        fn anoncreds_works_for_multiple_credentials_different_link_secret_prover_lies() {
+            anoncreds_works_for_multiple_credentials_different_link_secret(true)
+        }
+
+        fn anoncreds_works_for_multiple_credentials_different_link_secret(pretend_same_link_secrets: bool) {
             // HLCryptoDefaultLogger::init(None).ok();
 
             // 1. Prover creates master secret
@@ -2246,6 +2257,16 @@ mod openssl_tests {
                 )
                 .unwrap();
 
+            // If pretend_same_link_secrets is true, the prover attempts to claim that the link
+            // secret for the second credential is the same as for the first; otherwise it tells the
+            // truth.  The choice here affects the way in which verify fails, see end of test.
+            let blind_credential_values_for_second_link_secret =
+                if pretend_same_link_secrets {
+                    &gvt_blind_credential_values
+                } else {
+                    &pqr_blind_credential_values
+                };
+
             // 10. Prover adds XYZ sub proof request
             proof_builder
                 .add_sub_proof_request(
@@ -2254,7 +2275,7 @@ mod openssl_tests {
                     &non_credential_schema,
                     &pqr_credential_signature,
                     &pqr_credential_values
-                        .merge(&pqr_blind_credential_values)
+                        .merge(blind_credential_values_for_second_link_secret)
                         .unwrap(),
                     &pqr_credential_pub_key,
                     None,
@@ -2292,10 +2313,16 @@ mod openssl_tests {
                 .unwrap();
 
             // The proof will fail since value of `master_secret` is different in both credentials
-            assert_eq!(
-                ErrorKind::ProofRejected,
-                proof_verifier.verify(&proof, &nonce).unwrap_err().kind()
-            );
+            // It fails differently (either returning an Err or Ok(false)) depending on whether the
+            // Prover tried to claim the link secrets were the same.
+            match proof_verifier.verify(&proof, &nonce) {
+                Err(e) => {
+                    assert_eq!(ErrorKind::ProofRejected, e.kind());
+                    assert!(!pretend_same_link_secrets)
+                },
+                Ok(false) => assert!(pretend_same_link_secrets),
+                Ok(true) => panic!("Verification succeeded but should have failed")
+            }
         }
 
         #[test]

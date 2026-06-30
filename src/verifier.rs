@@ -1,13 +1,21 @@
-use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::iter::FromIterator;
+#[cfg(not(feature = "vca"))]
+pub use version_specific_imports::*;
 
-use crate::bn::BigNumber;
-use crate::constants::{ITERATION, LARGE_E_START_VALUE};
+#[cfg(not(feature = "vca"))]
+mod version_specific_imports {
+    pub use std::collections::hash_map::Entry;
+    pub use std::collections::HashSet;
+    pub use std::iter::FromIterator;
+    pub use crate::bn::BigNumber;
+    pub use crate::constants::{ITERATION, LARGE_E_START_VALUE};
+    pub use crate::hash::hash_list_to_bignum;
+    pub use crate::helpers::*;
+}
+
+use std::collections::{BTreeSet, HashMap};
 use crate::error::Result as ClResult;
-use crate::hash::hash_list_to_bignum;
-use crate::helpers::*;
 use crate::types::*;
+
 
 /// Party that wants to check that prover has some credentials provided by issuer.
 #[derive(Copy, Clone, Debug)]
@@ -53,10 +61,19 @@ impl Verifier {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[derive(Debug)]
 pub struct ProofVerifier {
     credentials: Vec<VerifiableCredential>,
     common_attributes: HashMap<String, Option<BigNumber>>,
+    accept_legacy_revocation: bool,
+}
+
+#[cfg(feature="vca")]
+#[derive(Debug)]
+pub struct ProofVerifier {
+    credentials: Vec<VerifiableCredential>,
+    common_attributes: HashMap<String, Option<()>>,  // Not used by VCA
     accept_legacy_revocation: bool,
 }
 
@@ -114,6 +131,7 @@ impl ProofVerifier {
     ///                                      None,
     ///                                      None).unwrap();
     /// ```
+    #[cfg(not(feature="vca"))]
     pub fn add_sub_proof_request(
         &mut self,
         sub_proof_request: &SubProofRequest,
@@ -131,6 +149,24 @@ impl ProofVerifier {
         self.credentials.push(VerifiableCredential {
             pub_key: credential_pub_key.try_clone()?,
             sub_proof_request: sub_proof_request.clone(),
+            credential_schema: credential_schema.clone(),
+            non_credential_schema: non_credential_schema.clone(),
+            rev_key_pub: rev_key_pub.map(Clone::clone),
+            rev_reg: rev_reg.map(Clone::clone),
+        });
+        Ok(())
+    }
+    #[cfg(feature="vca")]
+    pub fn add_sub_proof_request_components(
+        &mut self,
+        credential_schema: &CredentialSchema,
+        non_credential_schema: &NonCredentialSchema,
+        credential_pub_key: &CredentialPublicKey,
+        rev_key_pub: Option<&RevocationKeyPublic>,
+        rev_reg: Option<&RevocationRegistry>,
+    ) -> ClResult<()> {
+        self.credentials.push(VerifiableCredential {
+            pub_key: credential_pub_key.try_clone()?,
             credential_schema: credential_schema.clone(),
             non_credential_schema: non_credential_schema.clone(),
             rev_key_pub: rev_key_pub.map(Clone::clone),
@@ -228,6 +264,7 @@ impl ProofVerifier {
     ///                                      None).unwrap();
     /// assert!(proof_verifier.verify(&proof, &proof_request_nonce).unwrap());
     /// ```
+    #[cfg(not(feature="vca"))]
     pub fn verify(&mut self, proof: &Proof, nonce: &Nonce) -> ClResult<bool> {
         trace!("ProofVerifier::verify: >>> proof: {proof:?}, nonce: {nonce:?}");
 
@@ -358,6 +395,7 @@ impl ProofVerifier {
         Ok(())
     }
 
+    #[cfg(not(feature="vca"))]
     fn _check_verify_params_consistency(
         credentials: &[VerifiableCredential],
         proof: &Proof,
@@ -409,6 +447,7 @@ impl ProofVerifier {
         Ok(())
     }
 
+    #[cfg(not(feature="vca"))]
     fn _verify_primary_proof(
         p_pub_key: &CredentialPrimaryPublicKey,
         c_hash: &BigNumber,
@@ -443,6 +482,7 @@ impl ProofVerifier {
         Ok(t_hat)
     }
 
+    #[cfg(not(feature="vca"))]
     fn _verify_equality(
         p_pub_key: &CredentialPrimaryPublicKey,
         proof: &PrimaryEqualProof,
@@ -498,6 +538,7 @@ impl ProofVerifier {
         Ok(vec![t])
     }
 
+    #[cfg(not(feature="vca"))]
     fn _verify_ne_predicate(
         p_pub_key: &CredentialPrimaryPublicKey,
         proof: &PrimaryPredicateInequalityProof,
@@ -563,6 +604,7 @@ impl ProofVerifier {
         Ok(tau_list)
     }
 
+    #[cfg(not(feature="vca"))]
     fn _verify_non_revocation_proof(
         r_pub_key: &CredentialRevocationPublicKey,
         rev_reg: &RevocationRegistry,
@@ -641,6 +683,7 @@ impl ProofVerifier {
     }
 }
 
+#[cfg(not(feature="vca"))]
 #[cfg(test)]
 mod tests {
     use super::*;
